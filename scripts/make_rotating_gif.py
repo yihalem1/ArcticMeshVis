@@ -34,6 +34,11 @@ def rotation_y(theta):
     return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
 
 
+def rotation_x(theta):
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
 def rasterize(V, F, C, size, bg=(35, 35, 38)):
     """Software z-buffer rasterizer with per-vertex color + Lambert shading."""
     H = W = size
@@ -43,10 +48,10 @@ def rasterize(V, F, C, size, bg=(35, 35, 38)):
     img[..., 2] = bg[2] / 255.0
     zbuf = np.full((H, W), -np.inf, dtype=np.float32)
 
-    # Fit mesh into NDC roughly
+    # Fit mesh into NDC roughly — scale 1.8 makes the mesh fill ~90% of the frame.
     center = (V.max(0) + V.min(0)) / 2
-    scale = 0.9 / np.max(V.max(0) - V.min(0))
-    P = (V - center) * scale  # in [-0.45, 0.45]
+    scale = 1.8 / np.max(V.max(0) - V.min(0))
+    P = (V - center) * scale  # roughly in [-0.9, 0.9]
     sx = (P[:, 0] * 0.5 + 0.5) * (W - 1)
     sy = (1.0 - (P[:, 1] * 0.5 + 0.5)) * (H - 1)
     sz = P[:, 2]
@@ -58,7 +63,10 @@ def rasterize(V, F, C, size, bg=(35, 35, 38)):
     n /= nlen
     light = np.array([0.3, 0.4, 1.0])
     light /= np.linalg.norm(light)
-    shade = np.clip(n @ light, 0.0, 1.0) * 0.7 + 0.3  # ambient + diffuse
+    # Two-sided lighting: many reconstructed meshes (e.g. the object branch here)
+    # have inconsistent face winding, so half their normals point inward and
+    # render as flat ambient (dark speckles). abs() lights both sides equally.
+    shade = np.abs(n @ light) * 0.5 + 0.5  # in [0.5, 1.0]
 
     # Per-face vertex screen coords
     x0, x1, x2 = sx[F[:, 0]], sx[F[:, 1]], sx[F[:, 2]]
@@ -117,9 +125,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--obj", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--size", type=int, default=480)
+    ap.add_argument("--size", type=int, default=520)
     ap.add_argument("--frames", type=int, default=36)
     ap.add_argument("--fps", type=int, default=18)
+    ap.add_argument("--tilt-deg", type=float, default=-18.0,
+                    help="Camera tilt around X (negative = look down).")
     args = ap.parse_args()
 
     V, F, C = load_mesh(args.obj)
@@ -130,10 +140,11 @@ def main():
     V[:, 1] *= -1  # flip Y for upright view
     V[:, 2] *= -1
 
+    Rx = rotation_x(np.deg2rad(args.tilt_deg))
     images = []
     for k in range(args.frames):
         theta = 2 * np.pi * k / args.frames
-        Vr = V @ rotation_y(theta).T
+        Vr = V @ rotation_y(theta).T @ Rx.T
         frame = rasterize(Vr, F, C, args.size)
         images.append(Image.fromarray(frame))
         print(f"  frame {k + 1}/{args.frames}")
