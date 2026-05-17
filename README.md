@@ -84,23 +84,6 @@ These views isolate the **hand-side contact map** — the same scalar field used
 
 The **object-side contact map** is the symmetric counterpart — each object vertex coloured by its distance to the nearest hand vertex. Pairing this with the hand-side map enables consistency losses across the two meshes.
 
----
-
-## How the rotating GIF was generated
-
-The hero animation at the top is rendered from the raw output mesh [`archicmeshvis/000020_combined_pose.obj`](archicmeshvis/000020_combined_pose.obj) (1,981 vertices, 8,071 faces, per-vertex RGB colours encoding the contact heatmap). The renderer is a small **software rasterizer** (no GPU / display required), packaged at [`scripts/make_rotating_gif.py`](scripts/make_rotating_gif.py).
-
-**How it works:**
-1. Load the `.obj` with `trimesh`, preserving per-vertex colours (these encode the contact heatmap).
-2. Centre the mesh and flip the Y/Z axes (ARCTIC exports are Y-down). Apply a small downward tilt (`--tilt-deg -18`) for an overhead-grasp camera view.
-3. For 36 evenly-spaced angles around the Y axis:
-   - Rotate the vertex positions.
-   - Project orthographically to screen space.
-   - Rasterize each triangle with a numpy z-buffer, interpolating vertex colours barycentrically and applying **two-sided Lambert shading** (`abs(n·L)` instead of `max(n·L, 0)`).
-4. Pack the 36 frames into a looping GIF with Pillow.
-
-> **Why two-sided lighting matters.** The object branch of this pipeline produces a *reconstructed* mesh (depth-fused), which routinely has **inconsistent triangle winding** — roughly half the faces have outward normals, the other half inward. A standard one-sided Lambert term renders the inward-facing half as flat ambient → speckled dark patches across the object surface. Taking the absolute value of `n·L` lights both sides equally and removes the artifact. The MANO hand meshes are unaffected (they ship with clean, outward-consistent winding) but the cube clearly needed the fix.
-
 **Reproduce it:**
 
 ```bash
